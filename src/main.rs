@@ -1,5 +1,10 @@
 use anyhow::Result;
 use combine::Parser;
+use fxhash::FxHashMap;
+use petgraph::{
+    graph::{Graph, NodeIndex},
+    Directed,
+};
 
 #[macro_use]
 #[allow(dead_code)]
@@ -7,7 +12,10 @@ mod atom {
     include!(concat!(env!("OUT_DIR"), "/edif_atom.rs"));
 }
 
+use atom::Atom;
+
 mod ast;
+mod netlist;
 mod parser;
 mod sexpr;
 
@@ -19,7 +27,11 @@ fn main() -> Result<()> {
         .unwrap()
         .0;
     let ep = parser::EdifParser::new();
-    dbg!(ep.parse(&e)?);
+    let ast = ep.parse(&e)?;
+
+    let nl = netlist::Netlist::from_ast(ast);
+
+    println!("{}", info_cont);
 
     Ok(())
 }

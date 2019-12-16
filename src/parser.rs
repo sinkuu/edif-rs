@@ -3,6 +3,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use crate::ast::*;
 use crate::atom::Atom;
 use crate::sexpr::{Expr, ExprKind};
+use fxhash::FxHashMap;
 
 pub struct EdifParser {}
 
@@ -73,7 +74,12 @@ impl EdifParser {
         self.sym_match(&self.expect_list(next_elem!(it))?[0], atom!("edifLevel"))?;
         self.sym_match(&self.expect_list(next_elem!(it))?[0], atom!("technology"))?;
 
-        let cells = it.map(|e| self.parse_cell(e)).collect::<Result<_, _>>()?;
+        let cells = it
+            .map(|e| {
+                let c = self.parse_cell(e)?;
+                Ok((c.name.clone(), c))
+            })
+            .collect::<Result<FxHashMap<Atom, Cell>>>()?;
 
         Ok(Library { name, cells })
     }
@@ -94,9 +100,14 @@ impl EdifParser {
 
     fn parse_view(&self, e: &Expr) -> Result<View> {
         let mut it = self.expect_list(e)?.iter();
+
         self.sym_match(next_elem!(it), atom!("view"))?;
         let name = self.expect_sym(next_elem!(it))?;
-        self.sym_match(&self.expect_list(next_elem!(it))?[0], atom!("viewtype"))?;
+
+        let viewtype = self.expect_list(next_elem!(it))?;
+        self.sym_match(&viewtype[0], atom!("viewtype"))?;
+        self.sym_match(&viewtype[1], atom!("NETLIST"))?;
+
         let interface = self.parse_interface(next_elem!(it))?;
 
         let contents = if let Some(cs) = it.next() {
@@ -157,9 +168,7 @@ impl EdifParser {
 
         let size = list[2].num().ok_or_else(|| anyhow!("expected a number"))?;
 
-        let name = self
-            .parse_name(&list[1])
-            .context("parsing name")?;
+        let name = self.parse_name(&list[1]).context("parsing name")?;
 
         Ok(Port {
             kind: PortKind::Array(size),
@@ -216,13 +225,34 @@ impl EdifParser {
         let name = self.parse_name(&list[1])?;
 
         if sym == atom!("instance") {
-            Ok(Content::Instance(Instance { name }))
+            let viewref = self.expect_list(&list[2])?;
+            self.sym_match(&viewref[0], atom!("viewref"))?;
+            let cellref = self.expect_list(&viewref[2])?;
+            self.sym_match(&cellref[0], atom!("cellref"))?;
+
+            let libraryref = if cellref.len() == 3 {
+                let libraryref = self.expect_list(&cellref[2])?;
+                self.sym_match(&libraryref[0], atom!("libraryref"))?;
+                Some(self.expect_sym(&libraryref[1])?)
+            } else {
+                None
+            };
+            let viewref = self.expect_sym(&viewref[1])?;
+            let cellref = self.expect_sym(&cellref[1])?;
+
+            Ok(Content::Instance(Instance {
+                name,
+                viewref,
+                cellref,
+                libraryref,
+            }))
         } else if sym == atom!("net") {
             let joined = self.expect_list(&list[2])?;
             self.sym_match(&joined[0], atom!("joined"))?;
-            let portrefs = joined[1..].iter().map(|e| {
-                self.parse_portref(e)
-            }).collect::<Result<Vec<_>>>()?;
+            let portrefs = joined[1..]
+                .iter()
+                .map(|e| self.parse_portref(e))
+                .collect::<Result<Vec<_>>>()?;
             Ok(Content::Net(Net { name, portrefs }))
         } else {
             bail!("expected instance or net at {:?}", e.pos);

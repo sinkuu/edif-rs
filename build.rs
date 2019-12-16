@@ -4,7 +4,7 @@ use std::path::Path;
 fn main() {
     println!("rerun-if-changed=build.rs");
     string_cache_codegen::AtomType::new("atom::Atom", "atom!")
-        .atoms(&[
+        .atoms(vec![
             "direction",
             "INPUT",
             "OUTPUT",
@@ -35,6 +35,13 @@ fn main() {
             "member",
             "portref",
             "instanceref",
+            "main",
+            "hdi_primitives",
+            "work",
+            "libraryref",
+            "cellref",
+            "viewref",
+            "NETLIST",
         ])
         .write_to_file(&Path::new(&env::var("OUT_DIR").unwrap()).join("edif_atom.rs"))
         .unwrap()

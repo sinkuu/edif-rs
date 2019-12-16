@@ -1,4 +1,5 @@
 use crate::atom::Atom;
+use fxhash::FxHashMap;
 
 #[derive(Debug)]
 pub struct Edif {
@@ -8,7 +9,7 @@ pub struct Edif {
 #[derive(Debug)]
 pub struct Library {
     pub name: Atom,
-    pub cells: Vec<Cell>,
+    pub cells: FxHashMap<Atom, Cell>,
 }
 
 #[derive(Debug)]
@@ -49,7 +50,7 @@ pub enum PortKind {
     Array(i32),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
     Input,
     Output,
@@ -71,6 +72,9 @@ pub struct Net {
 #[derive(Debug)]
 pub struct Instance {
     pub name: Name,
+    pub cellref: Atom,
+    pub viewref: Atom,
+    pub libraryref: Option<Atom>,
 }
 
 #[derive(Debug)]

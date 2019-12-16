@@ -8,6 +8,8 @@ edition = "2018"
 combine = "3.5.2"
 anyhow = "1"
 string_cache = "0.8"
+fxhash = "0.2.1"
+petgraph = "0.4.13"
 
 [build-dependencies]
 string_cache_codegen = "0.5"
