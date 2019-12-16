@@ -1,10 +1,10 @@
 use anyhow::Result;
-use combine::Parser;
 use fxhash::FxHashMap;
 use petgraph::{
     graph::{Graph, NodeIndex},
     Directed,
 };
+use std::io::{self, Read};
 
 #[macro_use]
 #[allow(dead_code)]
@@ -20,16 +20,14 @@ mod parser;
 mod sexpr;
 
 fn main() -> Result<()> {
-    let s = std::fs::read_to_string("./mips.edf").unwrap();
+    let stdin = io::stdin();
+    let mut stdin = stdin.lock();
+    let mut s = String::new();
+    stdin.read_to_string(&mut s)?;
 
-    let e = sexpr::sexpr_parser()
-        .easy_parse(combine::stream::state::State::new(s.as_str()))
-        .unwrap()
-        .0;
-    let ep = parser::EdifParser::new();
-    let ast = ep.parse(&e)?;
+    let ast = parser::EdifParser::parse_from_str(&s)?;
 
-    let nl = netlist::Netlist::from_ast(ast);
+    netlist::Netlist::from_ast(&ast);
 
     Ok(())
 }

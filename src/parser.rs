@@ -27,7 +27,18 @@ impl EdifParser {
         EdifParser {}
     }
 
-    pub fn parse(&self, e: &Expr) -> Result<Edif> {
+    pub fn parse_from_str(s: &str) -> Result<Edif> {
+        use combine::Parser;
+
+        let e = crate::sexpr::sexpr_parser()
+            .easy_parse(combine::stream::state::State::new(s))
+            .unwrap()
+            .0;
+
+        EdifParser::new().parse_expr(&e)
+    }
+
+    pub fn parse_expr(&self, e: &Expr) -> Result<Edif> {
         let mut it = self.expect_list(e)?.iter();
 
         self.sym_match(next_elem!(it), atom!("edif"))?;
@@ -44,28 +55,54 @@ impl EdifParser {
         self.sym_match(&self.expect_list(next_elem!(it))?[0], atom!("keywordmap"))?;
         self.sym_match(&self.expect_list(next_elem!(it))?[0], atom!("status"))?;
 
-        let libs: Vec<Library> = it
-            .filter_map(|e| {
-                let l = match self.expect_list(e) {
-                    Ok(l) => l,
-                    Err(e) => return Some(Err(e)),
-                };
+        let mut libs = FxHashMap::<Atom, Library>::default();
+        let mut design = None;
+        for e in it {
+            let list = self.expect_list(e)?;
+            let sym = self.expect_sym(&list[0])?;
 
-                if self.sym_match(&l[0], atom!("comment")).is_ok()
-                    || self.sym_match(&l[0], atom!("design")).is_ok()
-                {
-                    None
-                } else {
-                    Some(self.parse_library(e))
+            match sym {
+                atom!("comment") => continue,
+                atom!("Library") => {
+                    let lib = self.parse_library(&list)?;
+                    libs.insert(lib.name.clone(), lib);
                 }
-            })
-            .collect::<Result<_, _>>()?;
+                atom!("design") => {
+                    design = Some(self.parse_design(&list)?);
+                }
+                _ => anyhow::bail!("unknown element `{}`", sym),
+            }
+        }
 
-        Ok(Edif { libs })
+        Ok(Edif {
+            libs,
+            design: design.ok_or_else(|| anyhow!("`design` not found"))?,
+        })
     }
 
-    fn parse_library(&self, e: &Expr) -> Result<Library> {
-        let mut it = self.expect_list(e)?.iter();
+    fn parse_design(&self, list: &[Expr]) -> Result<Design> {
+        let mut it = list.iter();
+
+        self.sym_match(next_elem!(it), atom!("design"))?;
+
+        let inst_name = self.expect_sym(next_elem!(it))?;
+
+        let cellref = self.expect_list(next_elem!(it))?;
+        self.sym_match(&cellref[0], atom!("cellref"))?;
+        let libraryref = self.expect_list(&cellref[2])?;
+
+        let cellref = self.expect_sym(&cellref[1])?;
+        let libraryref = self.expect_sym(&libraryref[1])?;
+
+        Ok(Design {
+            inst_name,
+            cellref,
+            libraryref,
+        })
+    }
+
+    fn parse_library(&self, list: &[Expr]) -> Result<Library> {
+        let mut it = list.iter();
 
         self.sym_match(next_elem!(it), atom!("Library"))?;
 

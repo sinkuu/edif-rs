@@ -3,7 +3,15 @@ use fxhash::FxHashMap;
 
 #[derive(Debug)]
 pub struct Edif {
-    pub libs: Vec<Library>,
+    pub libs: FxHashMap<Atom, Library>,
+    pub design: Design,
+}
+
+#[derive(Debug)]
+pub struct Design {
+    pub inst_name: Atom,
+    pub cellref: Atom,
+    pub libraryref: Atom,
 }
 
 #[derive(Debug)]
@@ -30,13 +38,13 @@ pub struct Interface {
     pub ports: Vec<Port>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Name {
     pub name: Atom,
     pub rename_from: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Port {
     pub kind: PortKind,
     pub dir: Direction,
@@ -44,7 +52,7 @@ pub struct Port {
     pub is_array: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum PortKind {
     Single,
     Array(i32),
@@ -77,7 +85,7 @@ pub struct Instance {
     pub libraryref: Option<Atom>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PortRef {
     pub port: Atom,
     pub member: Option<i32>,
