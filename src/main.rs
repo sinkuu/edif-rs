@@ -31,7 +31,5 @@ fn main() -> Result<()> {
 
     let nl = netlist::Netlist::from_ast(ast);
 
-    println!("{}", info_cont);
-
     Ok(())
 }
