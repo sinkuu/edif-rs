@@ -1,9 +1,4 @@
 use anyhow::Result;
-use fxhash::FxHashMap;
-use petgraph::{
-    graph::{Graph, NodeIndex},
-    Directed,
-};
 use std::io::{self, Read};
 
 #[macro_use]
@@ -11,8 +6,6 @@ use std::io::{self, Read};
 mod atom {
     include!(concat!(env!("OUT_DIR"), "/edif_atom.rs"));
 }
-
-use atom::Atom;
 
 mod ast;
 mod netlist;
@@ -27,7 +20,9 @@ fn main() -> Result<()> {
 
     let ast = parser::EdifParser::parse_from_str(&s)?;
 
-    netlist::Netlist::from_ast(&ast);
+    let mut netlist = netlist::Netlist::from_ast(&ast);
+    netlist.flatten();
+    println!("{:#?}", netlist);
 
     Ok(())
 }
