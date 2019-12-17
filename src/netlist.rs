@@ -72,6 +72,79 @@ impl Instance {
             interface,
         }
     }
+
+    fn into_hierarchy_named(self, parent_path: &[Atom]) -> (Atom, Instance) {
+        let Instance {
+            name,
+            nets,
+            instances,
+            interface,
+        } = self;
+
+        let mut path = parent_path.to_vec();
+        path.push(name.clone());
+        let new_inst_name = path
+            .iter()
+            .map(|s| s.as_ref())
+            .collect::<Vec<_>>()
+            .join("/");
+
+        let instances = instances
+            .into_iter()
+            .map(|(_, inst)| inst.into_hierarchy_named(&path))
+            .collect();
+
+        let nets = nets
+            .into_iter()
+            .map(|(_, net)| {
+                let new_name = Atom::from(format!("{}/{}", new_inst_name, net.name));
+                let ports = net
+                    .ports
+                    .into_iter()
+                    .map(|(_, mut portref)| {
+                        if let Some(inst_ref) = portref.instance_ref {
+                            let inst_ref = format!("{}/{}", new_inst_name, inst_ref);
+                            portref.port = Atom::from(format!("{}/{}", inst_ref, portref.port));
+                            portref.instance_ref = Some(Atom::from(inst_ref));
+                        } else {
+                            portref.port =
+                                Atom::from(format!("{}/{}", new_inst_name, portref.port));
+                        };
+
+                        (portref.port.clone(), portref)
+                    })
+                    .collect();
+
+                (
+                    new_name.clone(),
+                    Net {
+                        name: new_name,
+                        ports,
+                    },
+                )
+            })
+            .collect();
+
+        let interface = interface
+            .into_iter()
+            .map(|(_, mut port)| {
+                port.name = ast::Name {
+                    name: Atom::from(format!("{}/{}", new_inst_name, port.name.name)),
+                    rename_from: port.name.rename_from,
+                };
+                (port.name.name.clone(), port)
+            })
+            .collect();
+
+        let finst = Instance {
+            name: Atom::from(new_inst_name),
+            instances,
+            nets,
+            interface,
+        };
+
+        (finst.name.clone(), finst)
+    }
 }
 
 #[derive(Debug)]
@@ -111,7 +184,10 @@ impl Netlist {
         Netlist { top }
     }
 
-    pub fn into_flattened(self) -> Self {
-        let mut breadcrumb = vec![self.top.name.clone()];
+    /// Rename netlist elements to include its parents, e.g. `port` -> `inst/inner_inst/port`.
+    pub fn into_hierarchy_named(self) -> Self {
+        Netlist {
+            top: self.top.into_hierarchy_named(&[]).1,
+        }
     }
 }
