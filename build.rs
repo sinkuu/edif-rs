@@ -2,7 +2,7 @@ use std::env;
 use std::path::Path;
 
 fn main() {
-    println!("rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=build.rs");
     string_cache_codegen::AtomType::new("atom::Atom", "atom!")
         .atoms(vec![
             "direction",

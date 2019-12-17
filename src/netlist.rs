@@ -72,6 +72,8 @@ impl Instance {
     }
 
     fn flatten(&mut self) {
+        let mut if_ports = FxHashSet::default();
+
         for (_, mut inst) in mem::take(&mut self.instances) {
             inst.flatten();
 
@@ -79,25 +81,32 @@ impl Instance {
                 self.instances.insert(inst.name.clone(), inst);
                 continue;
             } else {
-                assert!(inst
+                debug_assert!(inst
                     .instances
                     .values()
-                    .all(|inst| inst.instances.len() == 0));
+                    .all(|inst| inst.instances.is_empty()));
                 self.instances.extend(inst.instances);
             }
 
             let inst_name = inst.name.clone();
 
-            let mut if_ports = FxHashSet::default();
+            if_ports.clear();
             for (_, net) in &inst.nets {
-                if_ports.extend(net.ports.iter().filter(|p| p.instance == inst_name).cloned());
+                if_ports.extend(
+                    net.ports
+                        .iter()
+                        .filter(|p| p.instance == inst_name)
+                        .cloned(),
+                );
             }
 
             let mut merger = NetMerger::new(if_ports.iter().cloned(), inst_name.clone());
 
             for (name, net) in &mut self.nets {
                 if net.ports.intersection(&if_ports).next().is_some() {
-                    assert!(merger.merge(name, net));
+                    if !merger.merge(name, net) {
+                        unreachable!()
+                    }
                 }
             }
 
@@ -142,7 +151,10 @@ struct NetMerger {
 
 impl NetMerger {
     fn new(ports: impl Iterator<Item = PortRef>, inst_name: Atom) -> Self {
-        let idx = ports.enumerate().map(|(i, p)| (p, i)).collect::<FxHashMap<PortRef, usize>>();
+        let idx = ports
+            .enumerate()
+            .map(|(i, p)| (p, i))
+            .collect::<FxHashMap<PortRef, usize>>();
         let len = idx.len();
         NetMerger {
             idx,
@@ -156,7 +168,7 @@ impl NetMerger {
             .ports
             .iter()
             .filter(|p| p.instance == self.inst_name)
-            .map(|p| (p.clone(), self.idx[p]))
+            .map(|p| (p, self.idx[p]))
             .collect::<Vec<_>>();
 
         if indices.is_empty() {
@@ -183,7 +195,7 @@ impl NetMerger {
                 }
             }
 
-            *self.idx.get_mut(&p).unwrap() = i;
+            *self.idx.get_mut(p).unwrap() = i;
         }
 
         self.nets[i]
@@ -213,9 +225,9 @@ pub struct Net {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PortRef {
-    instance: Atom,
-    port: Atom,
-    member: Option<i32>,
+    pub instance: Atom,
+    pub port: Atom,
+    pub member: Option<i32>,
 }
 
 impl Net {
@@ -245,7 +257,7 @@ impl Net {
 /// Instantiated netlist.
 #[derive(Debug)]
 pub struct Netlist {
-    top: Instance,
+    pub top: Instance,
 }
 
 impl Netlist {
@@ -260,7 +272,7 @@ impl Netlist {
         Netlist { top }
     }
 
-    /// Flatten the nested instance hierarchy, while renaming netlist elements to include its original hierarchy information, e.g. `port` -> `inst/inner_inst/port`.
+    /// Flatten the nested instance hierarchy.
     pub fn flatten(&mut self) {
         self.top.flatten();
     }
