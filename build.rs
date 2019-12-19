@@ -4,6 +4,7 @@ use std::path::Path;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     string_cache_codegen::AtomType::new("atom::Atom", "atom!")
+        .with_atom_doc("Interned symbols in EDIF AST.")
         .atoms(vec![
             "direction",
             "INPUT",
