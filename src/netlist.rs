@@ -113,7 +113,7 @@ impl Instance {
             let inst_path = inst.path;
 
             if_ports.clear();
-            for (_, net) in &inst.nets {
+            for net in inst.nets.values() {
                 if_ports.extend(
                     net.ports
                         .iter()
@@ -125,10 +125,8 @@ impl Instance {
             let mut merger = NetMerger::new(if_ports.iter().cloned(), inst_path.clone());
 
             for (name, net) in &mut self.nets {
-                if net.ports.intersection(&if_ports).next().is_some() {
-                    if !merger.merge(name, net) {
-                        unreachable!()
-                    }
+                if net.ports.intersection(&if_ports).next().is_some() && !merger.merge(name, net) {
+                    unreachable!()
                 }
             }
 

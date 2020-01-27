@@ -1,5 +1,5 @@
 #[macro_use]
-#[allow(dead_code)]
+#[allow(dead_code, clippy::all)]
 mod atom {
     include!(concat!(env!("OUT_DIR"), "/edif_atom.rs"));
 }
