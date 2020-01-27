@@ -1,6 +1,7 @@
 use crate::ast;
 use crate::atom::Atom;
 use fxhash::{FxHashMap, FxHashSet};
+use std::fmt::{self, Debug};
 use std::mem;
 
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
@@ -32,6 +33,18 @@ impl Path {
             .collect::<Vec<_>>()
             .join("/")
             .into()
+    }
+}
+
+impl fmt::Display for Path {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (i, c) in self.0.iter().enumerate() {
+            if i != 0 {
+                write!(f, "::")?;
+            }
+            write!(f, "{}", c)?;
+        }
+        Ok(())
     }
 }
 
@@ -82,7 +95,7 @@ impl Instance {
             .ports
             .iter()
             .cloned()
-            .map(|p| (Atom::from(format!("{}/{}", inst_name, p.name.name)), p))
+            .map(|p| (p.name.name.clone(), p))
             .collect();
 
         Instance {
@@ -141,27 +154,54 @@ impl Instance {
             }
 
             self.nets.extend(merger.build());
+
+            inst.interface.clear();
+        }
+    }
+
+    fn verify_references_inner(&self, port_refs: &mut Vec<PortRef>) -> Result<(), String> {
+        port_refs.retain(|p| !(p.instance == self.path && self.interface.contains_key(&p.port)));
+
+        for n in self.nets.values() {
+            for p in &n.ports {
+                if p.instance == self.path {
+                    if !self.interface.contains_key(&p.port) {
+                        return Err(format!(
+                            "Instance '{}' does not have port '{}'.",
+                            self.path, p.port,
+                        ));
+                    }
+                    continue;
+                }
+
+                port_refs.push(p.clone());
+            }
         }
 
-        // for (net_name, n) in &self.nets {
-        //     for p in &n.ports {
-        //         if p.instance == self.name {
-        //             continue;
-        //         }
+        for inst in self.instances.values() {
+            inst.verify_references_inner(port_refs)?;
+        }
 
-        //         let port_path = Atom::from(format!("{}/{}", p.instance, p.port));
-        //         assert!(
-        //             self.instances.contains_key(&p.instance),
-        //             "instance \"{}\" not found, referenced by port {:?} in net {}",
-        //             p.instance,
-        //             p,
-        //             net_name,
-        //         );
-        //         assert!(self.instances[&p.instance]
-        //             .interface
-        //             .contains_key(&port_path));
-        //     }
-        // }
+        Ok(())
+    }
+
+    pub fn verify_references(&self) -> Result<(), impl Debug> {
+        let mut refs = vec![];
+        self.verify_references_inner(&mut refs)?;
+        if refs.is_empty() {
+            Ok(())
+        } else {
+            let missing_ports = refs
+                .into_iter()
+                .map(|p| {
+                    let mut inst = p.instance;
+                    inst.push(p.port);
+                    inst.to_string()
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            Err(format!("Missing ports: {}", missing_ports))
+        }
     }
 }
 
