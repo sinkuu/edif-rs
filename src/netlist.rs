@@ -3,9 +3,41 @@ use crate::atom::Atom;
 use fxhash::{FxHashMap, FxHashSet};
 use std::mem;
 
+#[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
+pub struct Path(Vec<Atom>);
+
+impl Path {
+    fn from_path_and_name(path: &[Atom], name: Atom) -> Self {
+        let mut v = path.to_vec();
+        v.push(name);
+        Path(v)
+    }
+
+    pub fn name(&self) -> Atom {
+        self.0.last().unwrap().clone()
+    }
+
+    fn push(&mut self, component: Atom) {
+        self.0.push(component);
+    }
+
+    fn as_slice(&self) -> &[Atom] {
+        self.0.as_slice()
+    }
+
+    fn to_flattened_name(&self) -> Atom {
+        self.0
+            .iter()
+            .map(|s| s.as_ref())
+            .collect::<Vec<_>>()
+            .join("/")
+            .into()
+    }
+}
+
 #[derive(Debug)]
 pub struct Instance {
-    pub name: Atom,
+    pub path: Path,
     pub instances: FxHashMap<Atom, Instance>,
     pub nets: FxHashMap<Atom, Net>,
     pub interface: FxHashMap<Atom, ast::Port>,
@@ -21,15 +53,7 @@ impl Instance {
     ) -> Self {
         let view = &ast.libs[lib].cells[cell].view;
 
-        let mut path = parent_path.to_vec();
-        path.push(inst_name.clone());
-
-        let inst_name = Atom::from(
-            path.iter()
-                .map(|p| p.as_ref())
-                .collect::<Vec<_>>()
-                .join("/"),
-        );
+        let path = Path::from_path_and_name(parent_path, inst_name.clone());
 
         let mut instances = FxHashMap::default();
         let mut nets = FxHashMap::default();
@@ -37,20 +61,18 @@ impl Instance {
         for c in &view.contents {
             match c {
                 ast::Content::Instance(inst) => {
+                    let name = inst.name.name.clone();
                     let inst = Instance::from_ast(
                         ast,
-                        &path,
-                        &inst.name.name,
+                        path.as_slice(),
+                        &name,
                         inst.libraryref.as_ref().unwrap(),
                         &inst.cellref,
                     );
-                    instances.insert(inst.name.clone(), inst);
+                    instances.insert(name, inst);
                 }
                 ast::Content::Net(net) => {
-                    nets.insert(
-                        Atom::from(format!("{}/{}", inst_name, net.name.name)),
-                        Net::from_ast(&net, &inst_name),
-                    );
+                    nets.insert(Atom::from(&net.name.name), Net::from_ast(&net, &path));
                 }
             }
         }
@@ -64,7 +86,7 @@ impl Instance {
             .collect();
 
         Instance {
-            name: inst_name,
+            path,
             instances,
             nets,
             interface,
@@ -78,7 +100,7 @@ impl Instance {
             inst.flatten();
 
             if inst.instances.is_empty() && inst.nets.is_empty() {
-                self.instances.insert(inst.name.clone(), inst);
+                self.instances.insert(inst.path.to_flattened_name(), inst);
                 continue;
             } else {
                 debug_assert!(inst
@@ -88,19 +110,19 @@ impl Instance {
                 self.instances.extend(inst.instances);
             }
 
-            let inst_name = inst.name.clone();
+            let inst_path = inst.path;
 
             if_ports.clear();
             for (_, net) in &inst.nets {
                 if_ports.extend(
                     net.ports
                         .iter()
-                        .filter(|p| p.instance == inst_name)
+                        .filter(|p| p.instance == inst_path)
                         .cloned(),
                 );
             }
 
-            let mut merger = NetMerger::new(if_ports.iter().cloned(), inst_name.clone());
+            let mut merger = NetMerger::new(if_ports.iter().cloned(), inst_path.clone());
 
             for (name, net) in &mut self.nets {
                 if net.ports.intersection(&if_ports).next().is_some() {
@@ -114,7 +136,9 @@ impl Instance {
 
             for (name, mut net) in inst.nets {
                 if !merger.merge(&name, &mut net) {
-                    assert!(self.nets.insert(name.clone(), net).is_none());
+                    let mut p = inst_path.clone();
+                    p.push(name);
+                    assert!(self.nets.insert(p.to_flattened_name(), net).is_none());
                 }
             }
 
@@ -146,11 +170,11 @@ impl Instance {
 struct NetMerger {
     idx: FxHashMap<PortRef, usize>,
     nets: Vec<Option<(Atom, FxHashSet<PortRef>)>>,
-    inst_name: Atom,
+    instance: Path,
 }
 
 impl NetMerger {
-    fn new(ports: impl Iterator<Item = PortRef>, inst_name: Atom) -> Self {
+    fn new(ports: impl Iterator<Item = PortRef>, instance: Path) -> Self {
         let idx = ports
             .enumerate()
             .map(|(i, p)| (p, i))
@@ -159,7 +183,7 @@ impl NetMerger {
         NetMerger {
             idx,
             nets: vec![None; len],
-            inst_name,
+            instance,
         }
     }
 
@@ -167,7 +191,7 @@ impl NetMerger {
         let indices = net
             .ports
             .iter()
-            .filter(|p| p.instance == self.inst_name)
+            .filter(|p| p.instance == self.instance)
             .map(|p| (p, self.idx[p]))
             .collect::<Vec<_>>();
 
@@ -207,12 +231,12 @@ impl NetMerger {
     }
 
     fn build(self) -> impl Iterator<Item = (Atom, Net)> {
-        let inst_name = self.inst_name;
+        let instance = self.instance;
         self.nets
             .into_iter()
             .flatten()
             .map(move |(name, mut ports)| {
-                ports.retain(|p| p.instance != inst_name);
+                ports.retain(|p| p.instance != instance);
                 (name, Net { ports })
             })
     }
@@ -225,22 +249,24 @@ pub struct Net {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PortRef {
-    pub instance: Atom,
+    pub instance: Path,
     pub port: Atom,
     pub member: Option<i32>,
 }
 
 impl Net {
-    fn from_ast(ast: &ast::Net, parent_inst: &Atom) -> Net {
+    fn from_ast(ast: &ast::Net, parent_path: &Path) -> Net {
         Net {
             ports: ast
                 .portrefs
                 .iter()
                 .map(|pr| {
                     let instance = if let Some(inst_ref) = &pr.instance_ref {
-                        Atom::from(format!("{}/{}", parent_inst, inst_ref))
+                        let mut p = parent_path.clone();
+                        p.push(inst_ref.clone());
+                        p
                     } else {
-                        parent_inst.clone()
+                        parent_path.clone()
                     };
 
                     PortRef {
