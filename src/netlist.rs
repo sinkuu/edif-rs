@@ -4,6 +4,12 @@ use fxhash::{FxHashMap, FxHashSet};
 use std::fmt::{self, Debug};
 use std::mem;
 
+/// Create a [`Netlist`](Netlist) from a string of an EDIF netlist.
+pub fn from_str(s: &str) -> anyhow::Result<Netlist> {
+    let ast = crate::parser::EdifParser::parse_from_str(s)?;
+    Ok(Netlist::from_ast(&ast))
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
 pub struct Path(Vec<Atom>);
 
@@ -26,13 +32,18 @@ impl Path {
         self.0.as_slice()
     }
 
-    fn to_flattened_name(&self) -> Atom {
-        self.0
+    pub fn to_flattened_path(&self) -> Path {
+        let len = self.0.len();
+        if len == 1 {
+            return self.clone();
+        }
+
+        let c = self.0[..len - 1]
             .iter()
             .map(|s| s.as_ref())
             .collect::<Vec<_>>()
-            .join("/")
-            .into()
+            .join("/");
+        Path(vec![c.into(), self.name()])
     }
 }
 
@@ -40,7 +51,7 @@ impl fmt::Display for Path {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (i, c) in self.0.iter().enumerate() {
             if i != 0 {
-                write!(f, "::")?;
+                write!(f, "/")?;
             }
             write!(f, "{}", c)?;
         }
@@ -113,7 +124,7 @@ impl Instance {
             inst.flatten();
 
             if inst.instances.is_empty() && inst.nets.is_empty() {
-                self.instances.insert(inst.path.to_flattened_name(), inst);
+                self.instances.insert(inst.path.name(), inst);
                 continue;
             } else {
                 debug_assert!(inst
@@ -147,29 +158,30 @@ impl Instance {
 
             for (name, mut net) in inst.nets {
                 if !merger.merge(&name, &mut net) {
-                    let mut p = inst_path.clone();
-                    p.push(name);
-                    assert!(self.nets.insert(p.to_flattened_name(), net).is_none());
+                    net.flatten();
+                    assert!(self.nets.insert(name, net).is_none());
                 }
             }
 
-            self.nets.extend(merger.build());
+            for (name, mut net) in merger.build() {
+                net.flatten();
+                self.nets.insert(name, net);
+            }
 
             inst.interface.clear();
         }
+
+        self.path = self.path.to_flattened_path();
     }
 
-    fn verify_references_inner(&self, port_refs: &mut Vec<PortRef>) -> Result<(), String> {
+    fn verify_references_inner(&self, port_refs: &mut Vec<PortRef>) -> anyhow::Result<()> {
         port_refs.retain(|p| !(p.instance == self.path && self.interface.contains_key(&p.port)));
 
         for n in self.nets.values() {
             for p in &n.ports {
                 if p.instance == self.path {
                     if !self.interface.contains_key(&p.port) {
-                        return Err(format!(
-                            "Instance '{}' does not have port '{}'.",
-                            self.path, p.port,
-                        ));
+                        anyhow::bail!("Instance '{}' does not have port '{}'.", self.path, p.port);
                     }
                     continue;
                 }
@@ -185,7 +197,7 @@ impl Instance {
         Ok(())
     }
 
-    pub fn verify_references(&self) -> Result<(), impl Debug> {
+    pub fn verify_references(&self) -> anyhow::Result<()> {
         let mut refs = vec![];
         self.verify_references_inner(&mut refs)?;
         if refs.is_empty() {
@@ -200,7 +212,7 @@ impl Instance {
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            Err(format!("Missing ports: {}", missing_ports))
+            anyhow::bail!("Missing ports: {}", missing_ports)
         }
     }
 }
@@ -316,6 +328,16 @@ impl Net {
                 .collect(),
         }
     }
+
+    fn flatten(&mut self) {
+        self.ports = mem::take(&mut self.ports)
+            .into_iter()
+            .map(|mut p| {
+                p.instance = p.instance.to_flattened_path();
+                p
+            })
+            .collect();
+    }
 }
 
 /// Instantiated netlist.
@@ -339,5 +361,9 @@ impl Netlist {
     /// Flatten the nested instance hierarchy.
     pub fn flatten(&mut self) {
         self.top.flatten();
+    }
+
+    pub fn verify_references(&self) -> anyhow::Result<()> {
+        self.top.verify_references()
     }
 }
