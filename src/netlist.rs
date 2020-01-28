@@ -371,7 +371,7 @@ impl Netlist {
             &ast.design.libraryref,
             &ast.design.cellref,
         );
-        Netlist { top }
+        Netlist { top: Box::new(top) }
     }
 
     /// Flatten the nested instance hierarchy.
