@@ -135,6 +135,12 @@ impl Instance {
     fn flatten(&mut self) {
         let mut if_ports = FxHashSet::default();
 
+        for net in self.nets.values_mut() {
+            net.flatten();
+        }
+
+        self.path = self.path.to_flattened_path();
+
         for (_, mut inst) in mem::take(&mut self.instances) {
             inst.flatten();
 
@@ -142,7 +148,7 @@ impl Instance {
                 self.instances.insert(inst.path.name(), inst);
                 continue;
             } else {
-                debug_assert!(inst
+                assert!(inst
                     .instances
                     .values()
                     .all(|inst| inst.instances.is_empty()));
@@ -152,6 +158,8 @@ impl Instance {
             let inst_path = inst.path;
 
             if_ports.clear();
+
+            // List up the ports that possibly interconnect between `inst` and `self`.
             for net in inst.nets.values() {
                 if_ports.extend(
                     net.ports
@@ -174,6 +182,7 @@ impl Instance {
 
             for (name, mut net) in inst.nets {
                 if !merger.merge(|| name.clone(), &mut net) {
+                    // An internal connection within `inst`.
                     net.flatten();
                     assert!(self
                         .nets
@@ -186,15 +195,32 @@ impl Instance {
                 net.flatten();
                 assert!(self.nets.insert(name, net).is_none());
             }
-
-            inst.interface.clear();
         }
 
         self.path = self.path.to_flattened_path();
     }
 
-    fn verify_references_inner(&self, port_refs: &mut Vec<PortRef>) -> anyhow::Result<()> {
-        port_refs.retain(|p| !(p.instance == self.path && self.interface.contains_key(&p.port)));
+    fn verify_references_inner(
+        &self,
+        port_refs: &mut FxHashMap<Path, Vec<PortRef>>,
+    ) -> anyhow::Result<()> {
+        use std::collections::hash_map::Entry;
+        if let Entry::Occupied(occupied) = port_refs.entry(self.path.clone()) {
+            fn check_array(member: Option<i32>, kind: ast::PortKind) -> bool {
+                use ast::PortKind::*;
+                match (member, kind) {
+                    (None, Single) => true,
+                    (Some(x), Array(y)) => x < y,
+                    _ => false,
+                }
+            }
+            if let Some(rp) = occupied.get().iter().find(|rp| {
+                rp.instance != self.path || !check_array(rp.member, self.interface[&rp.port].kind)
+            }) {
+                anyhow::bail!("Invalid reference {:?}", rp);
+            }
+            occupied.remove_entry();
+        }
 
         for n in self.nets.values() {
             for p in &n.ports {
@@ -205,7 +231,10 @@ impl Instance {
                     continue;
                 }
 
-                port_refs.push(p.clone());
+                port_refs
+                    .entry(p.instance.clone())
+                    .or_default()
+                    .push(p.clone());
             }
         }
 
@@ -217,13 +246,14 @@ impl Instance {
     }
 
     pub fn verify_references(&self) -> anyhow::Result<()> {
-        let mut refs = vec![];
+        let mut refs = FxHashMap::default();
         self.verify_references_inner(&mut refs)?;
-        if refs.is_empty() {
+        if refs.values().all(|v| v.is_empty()) {
             Ok(())
         } else {
             let missing_ports = refs
                 .into_iter()
+                .flat_map(|(_, v)| v)
                 .map(|p| {
                     let mut inst = p.instance;
                     inst.push(p.port);

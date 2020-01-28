@@ -50,7 +50,6 @@ pub struct Port {
     pub kind: PortKind,
     pub dir: Direction,
     pub name: Name,
-    pub is_array: bool,
 }
 
 #[derive(Clone, Copy, Debug)]

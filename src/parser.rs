@@ -190,7 +190,6 @@ impl EdifParser {
                 kind: PortKind::Single,
                 dir,
                 name,
-                is_array: false,
             });
         }
 
@@ -212,7 +211,6 @@ impl EdifParser {
             kind: PortKind::Array(size),
             dir,
             name,
-            is_array: true,
         })
     }
 
