@@ -69,6 +69,9 @@ pub struct Instance {
     pub instances: FxHashMap<Atom, Instance>,
     pub nets: FxHashMap<Atom, Net>,
     pub interface: FxHashMap<Atom, ast::Port>,
+    pub lib: Atom,
+    pub cell: Atom,
+    pub properties: FxHashMap<Atom, ast::Property>,
 }
 
 impl Instance {
@@ -76,6 +79,7 @@ impl Instance {
         ast: &crate::ast::Edif,
         parent_path: &[Atom],
         inst_name: &Atom,
+        properties: &FxHashMap<ast::Name, ast::Property>,
         lib: &Atom,
         cell: &Atom,
     ) -> Self {
@@ -94,6 +98,7 @@ impl Instance {
                         ast,
                         path.as_slice(),
                         &name,
+                        &inst.properties,
                         inst.libraryref.as_ref().unwrap(),
                         &inst.cellref,
                     );
@@ -118,6 +123,12 @@ impl Instance {
             instances,
             nets,
             interface,
+            properties: properties
+                .iter()
+                .map(|(k, v)| (k.name.clone(), v.clone()))
+                .collect(),
+            cell: cell.clone(),
+            lib: lib.clone(),
         }
     }
 
@@ -347,7 +358,7 @@ impl Net {
 /// Instantiated netlist.
 #[derive(Debug)]
 pub struct Netlist {
-    pub top: Instance,
+    pub top: Box<Instance>,
 }
 
 impl Netlist {
@@ -356,6 +367,7 @@ impl Netlist {
             ast,
             &[],
             &ast.design.inst_name,
+            &Default::default(),
             &ast.design.libraryref,
             &ast.design.cellref,
         );

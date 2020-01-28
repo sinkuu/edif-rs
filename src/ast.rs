@@ -1,5 +1,6 @@
 use crate::atom::Atom;
 use fxhash::FxHashMap;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct Edif {
@@ -38,7 +39,7 @@ pub struct Interface {
     pub ports: Vec<Port>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Name {
     pub name: Atom,
     pub rename_from: Option<String>,
@@ -83,6 +84,14 @@ pub struct Instance {
     pub cellref: Atom,
     pub viewref: Atom,
     pub libraryref: Option<Atom>,
+    pub properties: Arc<FxHashMap<Name, Property>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Property {
+    String(String),
+    Integer(i32),
+    Boolean(bool),
 }
 
 #[derive(Clone, Debug)]

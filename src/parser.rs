@@ -1,9 +1,10 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 
 use crate::ast::*;
 use crate::atom::Atom;
 use crate::sexpr::{Expr, ExprKind};
 use fxhash::FxHashMap;
+use std::sync::Arc;
 
 pub struct EdifParser {}
 
@@ -70,7 +71,7 @@ impl EdifParser {
                 atom!("design") => {
                     design = Some(self.parse_design(&list)?);
                 }
-                _ => anyhow::bail!("unknown element `{}`", sym),
+                _ => bail!("unknown element `{}`", sym),
             }
         }
 
@@ -195,7 +196,7 @@ impl EdifParser {
 
         let list = self.expect_list(name)?;
 
-        anyhow::ensure!(
+        ensure!(
             list.len() == 3,
             "expected a list with 3-elements at {:?}",
             name.pos,
@@ -282,6 +283,7 @@ impl EdifParser {
                 viewref,
                 cellref,
                 libraryref,
+                properties: Arc::new(self.parse_properties(&list[3..])?),
             }))
         } else if sym == atom!("net") {
             let joined = self.expect_list(&list[2])?;
@@ -294,6 +296,39 @@ impl EdifParser {
         } else {
             bail!("expected instance or net at {:?}", e.pos);
         }
+    }
+
+    fn parse_properties(&self, list: &[Expr]) -> Result<FxHashMap<Name, Property>> {
+        let mut props = FxHashMap::with_capacity_and_hasher(list.len(), Default::default());
+
+        for e in list {
+            let p = self.expect_list(e)?;
+            ensure!(p.len() == 3, "expected (property NAME value)");
+            self.sym_match(&p[0], atom!("property"))?;
+            let name = self.parse_name(&p[1])?;
+            let val = self.expect_list(&p[2])?;
+            let val = match self.expect_sym(&val[0])? {
+                atom!("string") => Property::String(self.expect_str(&val[1])?),
+                atom!("integer") => Property::Integer(self.expect_num(&val[1])?),
+                atom!("boolean") => {
+                    let val = self.expect_list(&val[1])?;
+                    ensure!(val.len() == 1, "expected (true) or (false)");
+                    let val = match self.expect_sym(&val[0])? {
+                        atom!("true") => true,
+                        atom!("false") => false,
+                        other => bail!("unknown boolean value: '{}'", other),
+                    };
+                    Property::Boolean(val)
+                }
+                kind => bail!("unknown property kind: '{}'", kind),
+            };
+            ensure!(
+                props.insert(name, val).is_none(),
+                "duplicated property name",
+            );
+        }
+
+        Ok(props)
     }
 
     pub fn parse_portref(&self, e: &Expr) -> Result<PortRef> {
@@ -314,7 +349,7 @@ impl EdifParser {
 
         let instance_ref = if let Some(iref) = it.next() {
             let iref = self.expect_list(iref)?;
-            anyhow::ensure!(iref.len() == 2, "expected a list with 2-elements");
+            ensure!(iref.len() == 2, "expected a list with 2-elements");
             self.sym_match(&iref[0], atom!("instanceref"))?;
             Some(self.expect_sym(&iref[1])?)
         } else {
