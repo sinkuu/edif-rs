@@ -9,10 +9,10 @@ fn main() -> anyhow::Result<()> {
         .map(|a| a == "--flatten")
         .unwrap_or(false);
     if flatten {
-        netlist.top.verify_references().unwrap();
+        netlist.verify_references().unwrap();
         netlist.flatten();
     }
-    netlist.top.verify_references().unwrap();
+    netlist.verify_references().unwrap();
 
     let mut stack = VecDeque::new();
     stack.push_back((0, *netlist.top));
