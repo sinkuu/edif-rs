@@ -24,6 +24,10 @@ impl Path {
         self.0.last().unwrap().clone()
     }
 
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
     fn push(&mut self, component: Atom) {
         self.0.push(component);
     }
