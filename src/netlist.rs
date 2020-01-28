@@ -38,12 +38,12 @@ impl Path {
             return self.clone();
         }
 
-        let c = self.0[..len - 1]
+        let c = self.0[1..]
             .iter()
             .map(|s| s.as_ref())
             .collect::<Vec<_>>()
             .join("/");
-        Path(vec![c.into(), self.name()])
+        Path(vec![self.0[0].clone(), c.into()])
     }
 }
 
