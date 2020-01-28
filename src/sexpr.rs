@@ -62,41 +62,31 @@ parser! {
         combine::RangeStream +
         combine::StreamOnce<Range = &'a str, Position = SourcePosition>]
     {
-        use combine::parser::char::{char as cmb_char, letter, spaces};
+        use combine::parser::char::{char as cmb_char, spaces};
         use combine::parser::range;
         use combine::{between, many, position};
 
         let num = range::take_while1(|c: char| c.is_ascii_digit())
             .map(|ds: &str| ExprKind::Num(ds.parse::<i32>().unwrap()));
-        let string = cmb_char('"').with(range::take_while(|c: char| c != '"')).skip(cmb_char('"'))
+        let string = cmb_char('"')
+            .with(range::take_while(|c: char| c != '"'))
+            .skip(cmb_char('"'))
             .map(|s: &str| ExprKind::Str(s.to_string()));
-        let list = between(
-            cmb_char('('),
-            cmb_char(')'),
-            many(sexpr_parser()),
+        let list = between(cmb_char('('), cmb_char(')'), many(sexpr_parser()))
+            .map(|es| ExprKind::List(es));
+        let symbol = range::recognize(
+            combine::satisfy(|c: char| c.is_ascii_alphabetic() || c == '|' || c == '&').skip(
+                range::take_while(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '&'),
+            ),
         )
-        .map(|es| ExprKind::List(es));
-        let symbol = letter()
-            .or(cmb_char('|'))
-            .or(cmb_char('&'))
-            .and(range::take_while(|c: char| {
-                c.is_ascii_alphanumeric() || c == '_' || c == '&'
-            }))
-            .map(|(c, cs): (char, &str)| {
-                let mut s = String::with_capacity(cs.len() + 1);
-                s.push(c);
-                s.push_str(cs);
-                ExprKind::Symbol(Atom::from(s))
-            });
+        .map(|s| ExprKind::Symbol(Atom::from(s)));
 
         spaces()
             .with(position())
             .and(choice!(num, string, symbol, list))
-            .map(|(pos, kind): (SourcePosition, ExprKind)| {
-                Expr {
-                    kind,
-                    pos: Pos(pos.line, pos.column),
-                }
+            .map(|(pos, kind): (SourcePosition, ExprKind)| Expr {
+                kind,
+                pos: Pos(pos.line, pos.column),
             })
             .skip(spaces())
     }
