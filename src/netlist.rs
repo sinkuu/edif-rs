@@ -163,24 +163,28 @@ impl Instance {
 
             let mut merger = NetMerger::new(if_ports.iter().cloned(), inst_path.clone());
 
+            let self_path = &self.path;
             for (name, net) in &mut self.nets {
-                if net.ports.intersection(&if_ports).next().is_some() && !merger.merge(name, net) {
-                    unreachable!()
+                if net.ports.intersection(&if_ports).next().is_some() {
+                    assert!(merger.merge(|| format!("{}/{}", self_path, name).into(), net));
                 }
             }
 
             self.nets.retain(|_, n| !n.ports.is_empty());
 
             for (name, mut net) in inst.nets {
-                if !merger.merge(&name, &mut net) {
+                if !merger.merge(|| name.clone(), &mut net) {
                     net.flatten();
-                    assert!(self.nets.insert(name, net).is_none());
+                    assert!(self
+                        .nets
+                        .insert(format!("{}/{}", inst_path, name).into(), net)
+                        .is_none());
                 }
             }
 
             for (name, mut net) in merger.build() {
                 net.flatten();
-                self.nets.insert(name, net);
+                assert!(self.nets.insert(name, net).is_none());
             }
 
             inst.interface.clear();
@@ -252,7 +256,7 @@ impl NetMerger {
         }
     }
 
-    fn merge(&mut self, net_name: &Atom, net: &mut Net) -> bool {
+    fn merge(&mut self, net_name: impl FnOnce() -> Atom, net: &mut Net) -> bool {
         let indices = net
             .ports
             .iter()
@@ -288,7 +292,7 @@ impl NetMerger {
         }
 
         self.nets[i]
-            .get_or_insert_with(|| (net_name.clone(), FxHashSet::default()))
+            .get_or_insert_with(|| (net_name(), FxHashSet::default()))
             .1
             .extend(net.ports.drain());
 
